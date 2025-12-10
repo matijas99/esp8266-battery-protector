@@ -8,6 +8,9 @@ The circuit continuously monitors the battery voltage regardless of load state. 
 
 The controller is powered from the 12V battery via a DC-DC converter that supplies the required 5V rail. The same battery connection is used for both powering the circuit and monitoring the voltage.
 
+**Fail-Safe Design:**
+The relay uses inverted logic (HIGH = disconnect, LOW = connect) to implement a fail-safe design. In case of circuit errors, relay failures, or power loss to the controller, the relay defaults to keeping the load powered. This prioritizes load continuity over battery protection, ensuring that downstream systems don't lose power unexpectedly. While this approach risks battery health in failure scenarios, it prevents potentially critical downstream issues that could occur from unexpected power loss.
+
 **Auto-Rearming Logic:**
 - After the relay opens due to low voltage, the circuit monitors the battery voltage continuously.
 - The circuit will only attempt to rearm if the voltage rises above 12.8V (indicating the battery charging started).
@@ -119,7 +122,13 @@ The voltage divider uses two resistors to scale down the battery voltage to a sa
 - **S (Signal/IN)** → **D6 (GPIO12)** (digital control pin)
 - **COM** → Connect to **12V Battery Positive**
 - **NO** → Connect to load positive terminal
-- **Note**: When GPIO12 is set HIGH, the relay activates and connects COM to NO, allowing current to flow to the load. When LOW, the circuit is broken and no current flows. The relay opens immediately when voltage drops below 11V, and will only rearm when voltage rises above 12.8V (with a 60-second delay).
+- **Note**: The relay uses **inverted logic** for fail-safe operation:
+  - **GPIO12 HIGH**: Relay disconnects the load (circuit broken, no current flows)
+  - **GPIO12 LOW**: Relay connects the load (COM to NO connected, current flows)
+  - **Initial state**: GPIO12 starts HIGH (relay disconnected) for safety
+  - The relay opens immediately when voltage drops below 11V, and will only rearm when voltage rises above 12.8V (with a 60-second delay).
+  
+**Fail-Safe Behavior**: The relay is configured so that when GPIO12 is LOW (or loses power/floats LOW), the load remains connected. If the controller fails, loses power, or experiences a circuit error, the GPIO pin defaults to LOW state, keeping the relay closed and the load powered. This ensures that in failure scenarios, the load remains powered at the expense of potential battery health, prioritizing load continuity over battery protection.
 
 ### Green LED (Status Indicator)
 - **Anode (+)** → **D4 (GPIO2)** via **220Ω current-limiting resistor**

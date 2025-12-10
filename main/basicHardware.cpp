@@ -47,15 +47,15 @@ bool Switch :: isPressed() {
 Relay :: Relay(Pin* controlPin) {
   _controlPin = controlPin;
   _controlPin->setPinMode(OUTPUT);
-  _controlPin->doDigitalWrite(LOW);
+  _controlPin->doDigitalWrite(HIGH); // Start with relay disconnected (inverted logic)
 }
 
 void Relay :: turnOn() {
-  _controlPin->doDigitalWrite(HIGH);
+  _controlPin->doDigitalWrite(LOW); // LOW connects the load (inverted logic)
 }
 
 void Relay :: turnOff() {
-  _controlPin->doDigitalWrite(LOW);
+  _controlPin->doDigitalWrite(HIGH); // HIGH disconnects the load (inverted logic)
 }
 //////////////////////////////////////////////////////////
 
