@@ -5,8 +5,12 @@
 BatteryProtector* batteryProtector;
 Display* display;
 
-// Voltage cutoff configuration
-#define VOLTAGE_CUTOFF_THRESHOLD 10.5f  // Cutoff threshold in Volts (battery voltage below this will trigger cutoff)
+// Voltage configuration
+#define VOLTAGE_CUTOFF_THRESHOLD 11.0f  // Cutoff threshold in Volts (battery voltage below this will trigger cutoff)
+#define VOLTAGE_REARM_THRESHOLD 12.8f  // Rearm threshold in Volts (battery voltage must rise above this to trigger rearm)
+
+// Timing configuration
+#define REARM_DELAY_SECONDS 60  // Delay in seconds before rearming after voltage exceeds rearm threshold
 
 void setup() {
   Serial.begin(115200);
@@ -19,8 +23,13 @@ void setup() {
   // Initialize LCD display (I²C address 0x27)
   display = new Display(0x27, 16, 2);
   
-  // Initialize Battery Protector with voltage threshold and display
-  batteryProtector = new BatteryProtector(VOLTAGE_CUTOFF_THRESHOLD, display);
+  // Initialize Battery Protector with voltage thresholds, rearm delay, and display
+  batteryProtector = new BatteryProtector(
+    VOLTAGE_CUTOFF_THRESHOLD,
+    VOLTAGE_REARM_THRESHOLD,
+    REARM_DELAY_SECONDS * 1000UL,  // Convert seconds to milliseconds
+    display
+  );
 }
 
 void loop() {

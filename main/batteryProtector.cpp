@@ -6,11 +6,15 @@
 //////////////////////////////////////////////////////////
 BatteryProtector :: BatteryProtector(
   float voltageCutoffThreshold,
+  float voltageRearmThreshold,
+  unsigned long rearmDelayMs,
   Display* display
 ) {
   Serial.println("Initializing Battery Protector...");
   
   _voltageCutoffThreshold = voltageCutoffThreshold;
+  _voltageRearmThreshold = voltageRearmThreshold;
+  _rearmDelayMs = rearmDelayMs;
   _display = display;
   
   // Initialize hardware components
@@ -21,6 +25,7 @@ BatteryProtector :: BatteryProtector(
   _greenLED = new LED(new PinNative(PIN_GREEN_LED));
   _redLED = new LED(new PinNative(PIN_RED_LED));
   _testButton = new Switch(new PinNative(PIN_TEST_BUTTON));
+  _buzzer = new Buzzer(new PinNative(PIN_BUZZER));
   
   // Initialize voltage sensor
   if (!_voltageSensor->init()) {
@@ -61,6 +66,8 @@ BatteryProtector :: BatteryProtector(
     _loadRelay->turnOff();
     _greenLED->off();
     _redLED->on();
+    // Sound alarm buzzer for 5 seconds at 1kHz
+    _buzzer->startAlarm(1000, 5000);
   } else {
     Serial.print("Battery voltage: ");
     Serial.print(_lastVoltage, 2);
@@ -101,6 +108,9 @@ void BatteryProtector :: update() {
   
   // Update LEDs (called every loop iteration for blinking)
   _updateLEDs();
+
+  // Update buzzer (handles auto-stop after duration)
+  _updateBuzzer();
 }
 
 void BatteryProtector :: rearm() {
@@ -137,11 +147,11 @@ void BatteryProtector :: _handleTestButton() {
     delay(50); // Debounce
     if (_testButton->isPressed()) {
       if (_state == STATE_ARMED) {
-        // Simulate voltage drop - trigger cutoff
-        Serial.println("Test button: Simulating voltage drop below threshold");
+        // Simulate voltage drop below 11V threshold - trigger cutoff
+        Serial.println("Test button: Simulating voltage drop below 11V threshold");
         _performCutoff();
       } else if (_state == STATE_CUTOFF) {
-        // Immediately rearm (skip waiting for 1-minute interval)
+        // Immediately rearm (bypass voltage threshold check and delay)
         Serial.println("Test button: Immediately rearming circuit");
         rearm();
       }
@@ -163,25 +173,31 @@ void BatteryProtector :: _updateState() {
       break;
       
     case STATE_CUTOFF:
-      // Check if voltage is good but we're waiting for rearm interval
-      if (!_shouldCutoff() && !_isWaitingForRearm) {
-        // Voltage is good, start countdown
+      // Check if voltage is above rearm threshold (12.8V) but we're waiting for rearm delay
+      if (_lastVoltage >= _voltageRearmThreshold && !_isWaitingForRearm) {
+        // Voltage is above rearm threshold, start countdown
         _isWaitingForRearm = true;
         _rearmCountdownStartMs = millis();
-        Serial.println("Voltage is above threshold. Starting rearm countdown...");
-      } else if (_shouldCutoff() && _isWaitingForRearm) {
-        // Voltage dropped again during countdown, stop waiting
+        Serial.print("Voltage (");
+        Serial.print(_lastVoltage, 2);
+        Serial.print("V) is above rearm threshold (");
+        Serial.print(_voltageRearmThreshold, 2);
+        Serial.println("V). Starting rearm countdown...");
+      } else if (_lastVoltage < _voltageRearmThreshold && _isWaitingForRearm) {
+        // Voltage dropped below rearm threshold during countdown, stop waiting
         _isWaitingForRearm = false;
         _rearmCountdownStartMs = 0;
-        Serial.println("Voltage dropped below threshold during countdown. Cancelling rearm.");
+        Serial.print("Voltage (");
+        Serial.print(_lastVoltage, 2);
+        Serial.print("V) dropped below rearm threshold (");
+        Serial.print(_voltageRearmThreshold, 2);
+        Serial.println("V) during countdown. Cancelling rearm.");
         updateDisplay();
       } else if (_isWaitingForRearm) {
         // Check if countdown is complete
         _attemptRearm();
-      } else {
-        // Voltage still below threshold, attempt rearm periodically
-        _attemptRearm();
       }
+      // If voltage is below rearm threshold and not waiting, do nothing (wait for voltage to rise)
       break;
   }
 }
@@ -227,6 +243,9 @@ void BatteryProtector :: _performCutoff() {
   _greenLED->off();
   _redLED->on();
   
+  // Sound alarm buzzer for 5 seconds at 1kHz
+  _buzzer->startAlarm(1000, 5000);
+
   // Update display immediately
   updateDisplay();
   
@@ -243,70 +262,55 @@ void BatteryProtector :: _attemptRearm() {
   if (_isWaitingForRearm) {
     // Check if countdown is complete
     unsigned long elapsedMs = currentTime - _rearmCountdownStartMs;
-    if (elapsedMs >= _rearmIntervalMs) {
+    if (elapsedMs >= _rearmDelayMs) {
       Serial.println("Attempting to rearm circuit...");
       
-      // Close relay and check voltage
-      _loadRelay->turnOn();
-      delay(100); // Brief delay to allow voltage reading
-      
-      // Read voltage again
+      // Verify voltage is still above rearm threshold before rearming
       float voltage = _voltageSensor->readVoltageInVolts();
       _lastVoltage = voltage;
       
-      if (voltage >= _voltageCutoffThreshold) {
-        // Voltage is above threshold, rearm successful
-        _state = STATE_ARMED;
+      if (voltage >= _voltageRearmThreshold) {
+        // Voltage is still above rearm threshold, close relay and check cutoff threshold
+        _loadRelay->turnOn();
+        delay(100); // Brief delay to allow voltage reading
+        
+        // Read voltage again after closing relay
+        voltage = _voltageSensor->readVoltageInVolts();
+        _lastVoltage = voltage;
+        
+        if (voltage >= _voltageCutoffThreshold) {
+          // Voltage is above cutoff threshold, rearm successful
+          _state = STATE_ARMED;
+          _isWaitingForRearm = false;
+          _rearmCountdownStartMs = 0;
+          _greenLED->on();
+          _redLED->off();
+          updateDisplay(); // Update display immediately
+          Serial.print("Rearm successful: Voltage (");
+          Serial.print(voltage, 2);
+          Serial.println("V) is above cutoff threshold.");
+        } else {
+          // Voltage dropped below cutoff threshold, reopen relay and reset countdown
+          _loadRelay->turnOff();
+          _isWaitingForRearm = false;
+          _rearmCountdownStartMs = 0;
+          updateDisplay(); // Update display immediately
+          Serial.print("Rearm failed: Voltage (");
+          Serial.print(voltage, 2);
+          Serial.print("V) dropped below cutoff threshold (");
+          Serial.print(_voltageCutoffThreshold, 2);
+          Serial.println("V). Relay reopened.");
+        }
+      } else {
+        // Voltage dropped below rearm threshold during countdown, cancel rearm
         _isWaitingForRearm = false;
         _rearmCountdownStartMs = 0;
-        _greenLED->on();
-        _redLED->off();
         updateDisplay(); // Update display immediately
-        Serial.print("Rearm successful: Voltage (");
+        Serial.print("Rearm cancelled: Voltage (");
         Serial.print(voltage, 2);
-        Serial.println("V) is above threshold.");
-      } else {
-        // Voltage dropped below threshold, reopen relay and reset countdown
-        _loadRelay->turnOff();
-        _isWaitingForRearm = false;
-        _rearmCountdownStartMs = 0;
-        updateDisplay(); // Update display immediately
-        Serial.print("Rearm failed: Voltage (");
-        Serial.print(voltage, 2);
-        Serial.println("V) dropped below threshold. Relay reopened.");
-      }
-      
-      _lastRearmAttemptMs = currentTime;
-    }
-  } else {
-    // Check if it's time to attempt rearming (every minute) - old behavior for voltage still below threshold
-    if (currentTime - _lastRearmAttemptMs >= _rearmIntervalMs) {
-      Serial.println("Attempting to rearm circuit...");
-      
-      // Close relay and check voltage
-      _loadRelay->turnOn();
-      delay(100); // Brief delay to allow voltage reading
-      
-      // Read voltage again
-      float voltage = _voltageSensor->readVoltageInVolts();
-      _lastVoltage = voltage;
-      
-      if (voltage >= _voltageCutoffThreshold) {
-        // Voltage is above threshold, rearm successful
-        _state = STATE_ARMED;
-        _greenLED->on();
-        _redLED->off();
-        updateDisplay(); // Update display immediately
-        Serial.print("Rearm successful: Voltage (");
-        Serial.print(voltage, 2);
-        Serial.println("V) is above threshold.");
-      } else {
-        // Voltage still below threshold, reopen relay
-        _loadRelay->turnOff();
-        updateDisplay(); // Update display immediately
-        Serial.print("Rearm failed: Voltage (");
-        Serial.print(voltage, 2);
-        Serial.println("V) is still below threshold. Relay reopened.");
+        Serial.print("V) dropped below rearm threshold (");
+        Serial.print(_voltageRearmThreshold, 2);
+        Serial.println("V).");
       }
       
       _lastRearmAttemptMs = currentTime;
@@ -344,7 +348,7 @@ void BatteryProtector :: updateDisplay() {
   
   // Top row: Battery voltage
   _display->setCursor(0, 0);
-  _display->print("Battery: ");
+  _display->print("Baterija: ");
   _display->print(voltage, 2);
   _display->print("V");
   // Clear rest of line
@@ -356,9 +360,9 @@ void BatteryProtector :: updateDisplay() {
     // Show countdown
     unsigned long currentTime = millis();
     unsigned long elapsedMs = currentTime - _rearmCountdownStartMs;
-    unsigned long remainingMs = _rearmIntervalMs - elapsedMs;
+    unsigned long remainingMs = _rearmDelayMs - elapsedMs;
     
-    if (remainingMs > _rearmIntervalMs) {
+    if (remainingMs > _rearmDelayMs) {
       // Overflow protection
       remainingMs = 0;
     }
@@ -367,7 +371,7 @@ void BatteryProtector :: updateDisplay() {
     unsigned long minutes = remainingSeconds / 60;
     unsigned long seconds = remainingSeconds % 60;
     
-    _display->print("Rearm in: ");
+    _display->print("Palim za: ");
     if (minutes > 0) {
       _display->print((int)minutes);
       _display->print("m ");
@@ -378,7 +382,7 @@ void BatteryProtector :: updateDisplay() {
     _display->print("   ");
   } else {
     // Show relay state
-    _display->print("Load relay: ");
+    _display->print("Potrosac: ");
     if (state == STATE_ARMED) {
       _display->print("ON ");
     } else {
@@ -387,5 +391,10 @@ void BatteryProtector :: updateDisplay() {
     // Clear rest of line
     _display->print("   ");
   }
+}
+
+void BatteryProtector :: _updateBuzzer() {
+  // Update buzzer state (handles auto-stop after duration)
+  _buzzer->update();
 }
 //////////////////////////////////////////////////////////

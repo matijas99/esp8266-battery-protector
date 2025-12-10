@@ -111,6 +111,49 @@ void LED :: update() {
 
 
 //////////////////////////////////////////////////////////
+// BUZZER (Piezo Buzzer)
+//////////////////////////////////////////////////////////
+Buzzer :: Buzzer(PinNative* pin) {
+  _pin = pin;
+  _pin->setPinMode(OUTPUT);
+  _isAlarming = false;
+  _alarmStartTimeMs = 0;
+  _alarmDurationMs = 0;
+  stop(); // Ensure buzzer is off initially
+}
+
+void Buzzer :: startAlarm(unsigned int frequencyHz, unsigned long durationMs) {
+  _isAlarming = true;
+  _alarmStartTimeMs = millis();
+  _alarmDurationMs = durationMs;
+  // Use tone() function - ESP8266 tone() signature: tone(uint8_t pin, unsigned int frequency)
+  // Note: ESP8266 tone() doesn't support duration parameter, so we handle it manually in update()
+  tone(_pin->getPinAddress(), frequencyHz);
+}
+
+void Buzzer :: stop() {
+  _isAlarming = false;
+  _alarmStartTimeMs = 0;
+  _alarmDurationMs = 0;
+  // Use noTone() function to stop the buzzer
+  noTone(_pin->getPinAddress());
+}
+
+void Buzzer :: update() {
+  if (_isAlarming) {
+    unsigned long currentTime = millis();
+    unsigned long elapsedMs = currentTime - _alarmStartTimeMs;
+
+    // Check if duration has elapsed (with overflow protection)
+    if (elapsedMs >= _alarmDurationMs || (currentTime < _alarmStartTimeMs)) {
+      stop();
+    }
+  }
+}
+//////////////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////////////
 // VOLTAGE SENSOR (ADC with Voltage Divider)
 //////////////////////////////////////////////////////////
 const float VoltageSensor::ADC_REFERENCE_VOLTAGE = 3.3f; // WeMos D1 Mini A0 max input

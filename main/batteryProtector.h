@@ -10,7 +10,9 @@
 class BatteryProtector {
   public:
     BatteryProtector(
-      float voltageCutoffThreshold = 10.5f,  // Voltage threshold in Volts (cutoff when battery voltage drops below this)
+      float voltageCutoffThreshold = 11.0f,  // Voltage threshold in Volts (cutoff when battery voltage drops below this)
+      float voltageRearmThreshold = 12.8f,   // Voltage threshold in Volts (rearm when battery voltage rises above this)
+      unsigned long rearmDelayMs = 60000UL,  // Delay in milliseconds before rearming after voltage exceeds rearm threshold
       Display* display = nullptr  // Optional LCD display for status output
     );
     
@@ -34,6 +36,7 @@ class BatteryProtector {
     LED* _greenLED;
     LED* _redLED;
     Switch* _testButton;
+    Buzzer* _buzzer;
     Display* _display;
     
     // Pin definitions
@@ -42,16 +45,17 @@ class BatteryProtector {
     static const uint8_t PIN_GREEN_LED = 2;         // D4/GPIO2
     static const uint8_t PIN_RED_LED = 14;         // D5/GPIO14
     static const uint8_t PIN_TEST_BUTTON = 0;      // D3/GPIO0
+    static const uint8_t PIN_BUZZER = 13;          // D7/GPIO13
     
     float _voltageCutoffThreshold;
+    float _voltageRearmThreshold; // Voltage threshold in Volts (rearm when battery voltage rises above this)
+    unsigned long _rearmDelayMs; // Rearm delay in milliseconds
     
     State _state;
     float _lastVoltage;
     unsigned long _lastRearmAttemptMs;
     unsigned long _rearmCountdownStartMs; // When the rearm countdown started
-    bool _isWaitingForRearm; // True when voltage is good but waiting for rearm interval
-    
-    const unsigned long _rearmIntervalMs = 60000; // Auto-rearm interval: 1 minute (60000 ms)
+    bool _isWaitingForRearm; // True when voltage is above rearm threshold but waiting for rearm delay
     const unsigned long _updateIntervalMs = 1000; // Update interval: 1 second (1000 ms)
     unsigned long _lastUpdateTimeMs;
     unsigned long _lastLEDUpdateMs; // For LED blinking during countdown
@@ -63,6 +67,7 @@ class BatteryProtector {
     bool _shouldCutoff();
     void _performCutoff();
     void _attemptRearm();
+    void _updateBuzzer(); // Update buzzer state (handles auto-stop)
 };
 //////////////////////////////////////////////////////////
 

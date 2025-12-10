@@ -1,26 +1,27 @@
 # esp8266-battery-protector
 
-This circuit protects a 12V car battery (or similar lead-acid battery) from deep discharge by continuously monitoring the battery voltage and disconnecting the load once the voltage drops below 10.5V (indicating low battery capacity).
+This circuit protects a 12V car battery (or similar lead-acid battery) from deep discharge by continuously monitoring the battery voltage and disconnecting the load once the voltage drops below 11V (indicating low battery capacity).
 
-The circuit continuously monitors the battery voltage regardless of load state. When the voltage drops below 10.5V (the cutoff threshold), the relay opens immediately and disconnects the load to prevent deep discharge damage to the battery.
+The circuit continuously monitors the battery voltage regardless of load state. When the voltage drops below 11V (the cutoff threshold), the relay opens immediately and disconnects the load to prevent deep discharge damage to the battery.
 
-**Important**: If the circuit is connected to a battery with voltage already below 10.5V, it will cut off immediately upon startup.
+**Important**: If the circuit is connected to a battery with voltage already below 11V, it will cut off immediately upon startup.
 
 The controller is powered from the 12V battery via a DC-DC converter that supplies the required 5V rail. The same battery connection is used for both powering the circuit and monitoring the voltage.
 
 **Auto-Rearming Logic:**
-- After the relay opens due to low voltage, the circuit attempts to rearm every minute by closing the relay and checking the voltage again.
-- If the voltage drops below 10.5V again immediately, the relay reopens.
-- This periodic rearming prevents the relay from staying permanently open, allowing the circuit to automatically reconnect if the battery voltage recovers.
+- After the relay opens due to low voltage, the circuit monitors the battery voltage continuously.
+- The circuit will only attempt to rearm if the voltage rises above 12.8V (indicating the battery charging started).
+- When the voltage exceeds 12.8V, the circuit waits 60 seconds before closing the relay to rearm.
+- If the voltage drops below 11V again after rearming, the relay immediately reopens.
 
 LED behavior:
 - Green solid: battery voltage is above threshold and relay is closed (load connected).
-- Red solid: relay opened; battery voltage dropped below 10.5V cutoff threshold.
+- Red solid: relay opened; battery voltage dropped below 11V cutoff threshold.
 
 **Testing Button Functionality:**
 The hardware button serves as a testing/manual control button:
-- **Pressed while armed** (relay closed, voltage OK): Simulates voltage drop below 10.5V, immediately triggering cutoff and opening the relay. Useful for testing the cutoff functionality.
-- **Pressed while triggered** (relay open, voltage low): Immediately rearms the circuit, skipping the 1-minute wait period. Useful for manual recovery or testing the rearming functionality.
+- **Pressed while armed** (relay closed, voltage OK): Simulates voltage drop below 11V, immediately triggering cutoff and opening the relay. Useful for testing the cutoff functionality.
+- **Pressed while triggered** (relay open, voltage low): Immediately rearms the circuit, bypassing the voltage threshold check and 60-second delay. Useful for manual recovery or testing the rearming functionality.
 
 # Hardware:
 - ESP8266 WeMos D1 Mini Pro v3.0 NodeMcu 4MB/16MB WiFi board
@@ -118,7 +119,7 @@ The voltage divider uses two resistors to scale down the battery voltage to a sa
 - **S (Signal/IN)** → **D6 (GPIO12)** (digital control pin)
 - **COM** → Connect to **12V Battery Positive**
 - **NO** → Connect to load positive terminal
-- **Note**: When GPIO12 is set HIGH, the relay activates and connects COM to NO, allowing current to flow to the load. When LOW, the circuit is broken and no current flows. The relay opens immediately when voltage drops below 10.5V, and attempts to rearm every minute.
+- **Note**: When GPIO12 is set HIGH, the relay activates and connects COM to NO, allowing current to flow to the load. When LOW, the circuit is broken and no current flows. The relay opens immediately when voltage drops below 11V, and will only rearm when voltage rises above 12.8V (with a 60-second delay).
 
 ### Green LED (Status Indicator)
 - **Anode (+)** → **D4 (GPIO2)** via **220Ω current-limiting resistor**
@@ -130,14 +131,22 @@ The voltage divider uses two resistors to scale down the battery voltage to a sa
 ### Red LED (Cutoff Indicator)
 - **Anode (+)** → **D5 (GPIO14)** via **220Ω current-limiting resistor**
 - **Cathode (-)** → **GND**
-- **Behavior**: ON when relay is opened (battery voltage below 10.5V cutoff threshold)
+- **Behavior**: ON when relay is opened (battery voltage below 11V cutoff threshold)
 
 ### Hardware Testing Button
 - **Terminal 1** → **D3 (GPIO0)** (with internal pull-up enabled in code)
 - **Terminal 2** → **GND**
 - **Functionality**:
-  - **Pressed while armed** (relay closed, voltage above threshold): Simulates voltage drop below 10.5V, immediately triggering cutoff and opening the relay. Useful for testing.
-  - **Pressed while triggered** (relay open, voltage below threshold): Immediately rearms the circuit, skipping the 1-minute auto-rearm wait period. Useful for manual recovery or testing.
+  - **Pressed while armed** (relay closed, voltage above threshold): Simulates voltage drop below 11V, immediately triggering cutoff and opening the relay. Useful for testing.
+  - **Pressed while triggered** (relay open, voltage low): Immediately rearms the circuit, bypassing the voltage threshold check and 60-second delay. Useful for manual recovery or testing.
+
+### Piezo Buzzer (Alarm)
+- **Positive (+)** → **D7 (GPIO13)** via current-limiting resistor (220Ω recommended)
+- **Negative (-)** → **GND**
+- **Behavior**:
+  - Sounds alarm for 5 seconds when the circuit enters cutoff state (either via voltage drop below threshold or test button press)
+  - Alarm frequency: 1kHz
+  - Automatically stops after 5 seconds
 
 ### LCD Module (LCD1602 PCF8574T I²C)
 - **VCC** → **5V** (from 5V rail)
@@ -158,6 +167,7 @@ The voltage divider uses two resistors to scale down the battery voltage to a sa
 | Green LED | D4 | Digital | GPIO2 | Status indicator (pulled HIGH on boot) |
 | Red LED | D5 | Digital | GPIO14 | Cutoff indicator |
 | Test Button | D3 | Digital | GPIO0 | Testing/manual control (pulled HIGH on boot) |
+| Buzzer | D7 | Digital | GPIO13 | Alarm buzzer (sounds for 5s on cutoff) |
 | LCD SDA | D2 | Digital | GPIO4 | I²C data line |
 | LCD SCL | D1 | Digital | GPIO5 | I²C clock line |
 

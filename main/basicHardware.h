@@ -31,6 +31,7 @@ class PinNative : public Pin {
     void doDigitalWrite(uint8_t val);
     int doDigitalRead();
     int doAnalogRead();
+    uint8_t getPinAddress() { return _pinAddress; }
 };
 //////////////////////////////////////////////////////////
 
@@ -83,6 +84,25 @@ class LED {
     unsigned long _blinkIntervalMs;
     unsigned long _lastBlinkTimeMs;
     bool _currentState;
+};
+//////////////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////////////
+// BUZZER (Piezo Buzzer)
+//////////////////////////////////////////////////////////
+class Buzzer {
+  public:
+    Buzzer(PinNative* pin);
+    void startAlarm(unsigned int frequencyHz = 1000, unsigned long durationMs = 5000); // Start alarm with frequency and duration
+    void stop(); // Stop the alarm immediately
+    void update(); // Call in loop to handle auto-stop after duration
+
+  private:
+    PinNative* _pin;
+    bool _isAlarming;
+    unsigned long _alarmStartTimeMs;
+    unsigned long _alarmDurationMs;
 };
 //////////////////////////////////////////////////////////
 
